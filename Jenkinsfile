@@ -40,7 +40,7 @@ pipeline {
             agent any
             steps {
                 script {
-                    // Build and push backend Docker image
+                    // Build backend Docker image
                     dir('backend') {
                         sh 'docker build -t ${REPO_NAME}_backend .'
                     }
@@ -49,6 +49,7 @@ pipeline {
         }
 
         stage('Start Backend Container') {
+            agent any
             steps {
                 script {
                     // Start backend container
@@ -58,6 +59,7 @@ pipeline {
         }
 
         stage('Push Backend Docker Image') {
+            agent any
             steps {
                 script {
                     // Push backend Docker image to Docker Hub
@@ -72,7 +74,7 @@ pipeline {
             agent any
             steps {
                 script {
-                    // Build and push frontend Docker image
+                    // Build frontend Docker image
                     dir('frontend') {
                         sh 'docker build -t ${REPO_NAME}_frontend .'
                     }
@@ -81,6 +83,7 @@ pipeline {
         }
 
         stage('Start Frontend Container') {
+            agent any
             steps {
                 script {
                     // Start frontend container
@@ -90,6 +93,7 @@ pipeline {
         }
 
         stage('Push Frontend Docker Image') {
+            agent any
             steps {
                 script {
                     // Push frontend Docker image to Docker Hub
