@@ -1,5 +1,13 @@
-      pipeline {
+pipeline {
     agent any
+    
+    environment {
+        DOCKER_REGISTRY_CREDENTIALS = credentials('docker-hub-credentials')
+        DOCKER_IMAGE_TAG = 'latest'
+        MYSQL_IMAGE_NAME = 'darkne24/database'
+        BACKEND_IMAGE_NAME = 'darkne24/backend'
+        FRONTEND_IMAGE_NAME = 'darkne24/frontend'
+    }
     
     stages {
         stage('Checkout SCM') {
@@ -8,23 +16,19 @@
             }
         }
         
-        stage('Build MySQL') {
-            steps {
-                dir('darkne24/database') {
-                    script {
-                        docker.build("mysql-image", "-f Dockerfile .")
-                    }
+        def buildAndStartContainer(name, directory) {
+            script {
+                def imageName = "${directory}/Dockerfile"
+                docker.build(name, "-f ${imageName} .")
+                docker.image(name).withRun('-d --name ${name}-container') { c ->
+                    // Container started
                 }
             }
         }
         
-        stage('Start MySQL') {
+        stage('Build and Start MySQL') {
             steps {
-                script {
-                    sh 'docker stop $(docker ps -aq --filter name=mysql-container)'
-                    sh 'docker rm $(docker ps -aq --filter name=mysql-container)'
-                    sh 'docker run --name mysql-container -d mysql-image'
-                }
+                buildAndStartContainer(MYSQL_IMAGE_NAME, 'darkne24/database')
             }
         }
         
@@ -34,23 +38,9 @@
             }
         }
         
-        stage('Build Backend') {
+        stage('Build and Start Backend') {
             steps {
-                dir('darkne24/backend') {
-                    script {
-                        docker.build("backend-image", "-f Dockerfile .")
-                    }
-                }
-            }
-        }
-        
-        stage('Start Backend') {
-            steps {
-                script {
-                    sh 'docker stop $(docker ps -aq --filter name=backend-container)'
-                    sh 'docker rm $(docker ps -aq --filter name=backend-container)'
-                    sh 'docker run --name backend-container -d backend-image'
-                }
+                buildAndStartContainer(BACKEND_IMAGE_NAME, 'darkne24/backend')
             }
         }
         
@@ -60,23 +50,9 @@
             }
         }
         
-        stage('Build Frontend') {
+        stage('Build and Start Frontend') {
             steps {
-                dir('darkne24/frontend') {
-                    script {
-                        docker.build("frontend-image", "-f Dockerfile .")
-                    }
-                }
-            }
-        }
-        
-        stage('Start Frontend') {
-            steps {
-                script {
-                    sh 'docker stop $(docker ps -aq --filter name=frontend-container)'
-                    sh 'docker rm $(docker ps -aq --filter name=frontend-container)'
-                    sh 'docker run --name frontend-container -d frontend-image'
-                }
+                buildAndStartContainer(FRONTEND_IMAGE_NAME, 'darkne24/frontend')
             }
         }
         
@@ -89,10 +65,10 @@
         stage('Push DockerHub') {
             steps {
                 script {
-                    docker.withRegistry('', credentials('docker-hub-credentials')) {
-                        docker.image('mysql-image').push('latest')
-                        docker.image('backend-image').push('latest')
-                        docker.image('frontend-image').push('latest')
+                    docker.withRegistry('', DOCKER_REGISTRY_CREDENTIALS) {
+                        docker.image(MYSQL_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
+                        docker.image(BACKEND_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
+                        docker.image(FRONTEND_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
                     }
                 }
             }
