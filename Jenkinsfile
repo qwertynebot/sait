@@ -1,13 +1,5 @@
- pipeline {
+      pipeline {
     agent any
-    
-    environment {
-        DOCKER_REGISTRY_CREDENTIALS = credentials('daca55e7-a6fa-4d2b-9308-da0105c13b36')
-        DOCKER_IMAGE_TAG = 'latest'
-        MYSQL_IMAGE_NAME = 'darkne24/database'
-        BACKEND_IMAGE_NAME = 'darkne24/backend'
-        FRONTEND_IMAGE_NAME = 'darkne24/frontend'
-    }
     
     stages {
         stage('Checkout SCM') {
@@ -16,13 +8,22 @@
             }
         }
         
-        stage('Build and Start MySQL') {
+        stage('Build MySQL') {
+            steps {
+                dir('darkne24/database') {
+                    script {
+                        docker.build("mysql-image", "-f Dockerfile .")
+                    }
+                }
+            }
+        }
+        
+        stage('Start MySQL') {
             steps {
                 script {
-                    docker.build(MYSQL_IMAGE_NAME, '-f darkne24/database/Dockerfile .')
-                    docker.image(MYSQL_IMAGE_NAME).withRun('-d --name mysql-container') { c ->
-                        // Container started
-                    }
+                    sh 'docker stop $(docker ps -aq --filter name=mysql-container)'
+                    sh 'docker rm $(docker ps -aq --filter name=mysql-container)'
+                    sh 'docker run --name mysql-container -d mysql-image'
                 }
             }
         }
@@ -33,13 +34,22 @@
             }
         }
         
-        stage('Build and Start Backend') {
+        stage('Build Backend') {
+            steps {
+                dir('darkne24/backend') {
+                    script {
+                        docker.build("backend-image", "-f Dockerfile .")
+                    }
+                }
+            }
+        }
+        
+        stage('Start Backend') {
             steps {
                 script {
-                    docker.build(BACKEND_IMAGE_NAME, '-f darkne24/backend/Dockerfile .')
-                    docker.image(BACKEND_IMAGE_NAME).withRun('-d --name backend-container') { c ->
-                        // Container started
-                    }
+                    sh 'docker stop $(docker ps -aq --filter name=backend-container)'
+                    sh 'docker rm $(docker ps -aq --filter name=backend-container)'
+                    sh 'docker run --name backend-container -d backend-image'
                 }
             }
         }
@@ -50,13 +60,22 @@
             }
         }
         
-        stage('Build and Start Frontend') {
+        stage('Build Frontend') {
+            steps {
+                dir('darkne24/frontend') {
+                    script {
+                        docker.build("frontend-image", "-f Dockerfile .")
+                    }
+                }
+            }
+        }
+        
+        stage('Start Frontend') {
             steps {
                 script {
-                    docker.build(FRONTEND_IMAGE_NAME, '-f darkne24/frontend/Dockerfile .')
-                    docker.image(FRONTEND_IMAGE_NAME).withRun('-d --name frontend-container') { c ->
-                        // Container started
-                    }
+                    sh 'docker stop $(docker ps -aq --filter name=frontend-container)'
+                    sh 'docker rm $(docker ps -aq --filter name=frontend-container)'
+                    sh 'docker run --name frontend-container -d frontend-image'
                 }
             }
         }
@@ -70,10 +89,10 @@
         stage('Push DockerHub') {
             steps {
                 script {
-                    docker.withRegistry('', DOCKER_REGISTRY_CREDENTIALS) {
-                        docker.image(MYSQL_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
-                        docker.image(BACKEND_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
-                        docker.image(FRONTEND_IMAGE_NAME).push(DOCKER_IMAGE_TAG)
+                    docker.withRegistry('', credentials('docker-hub-credentials')) {
+                        docker.image('mysql-image').push('latest')
+                        docker.image('backend-image').push('latest')
+                        docker.image('frontend-image').push('latest')
                     }
                 }
             }
