@@ -2,105 +2,100 @@ pipeline {
     agent any
 
     environment {
-        // Docker Hub credentials
-        DOCKER_CREDENTIALS_ID = 'daca55e7-a6fa-4d2b-9308-da0105c13b36'
-        DOCKER_HUB_REPO = 'darkne24'
+        DOCKERHUB_CREDENTIALS = credentials('daca55e7-a6fa-4d2b-9308-da0105c13b36')
+        REPO_NAME = 'darkne24'
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
-        // Database stages
-        stage('Build Database Image') {
+        stage('Build SQL Server Docker Image') {
             steps {
                 script {
-                    def dbImage = "${DOCKER_HUB_REPO}/database:latest"
-                    docker.build(dbImage, 'path/to/database')
+                    sh 'docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Qwerty-1" -p 1433:1433 --name sql111 --hostname sql1 -d mcr.microsoft.com/mssql/server:2022-latest'
                 }
             }
         }
 
-        stage('Push Database Image') {
+        stage('Build and Publish .NET Core Application') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:6.0'
+                }
+            }
             steps {
                 script {
-                    def dbImage = "${DOCKER_HUB_REPO}/database:latest"
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
-                        docker.image(dbImage).push()
+                    // Restore dependencies and update the database
+                    sh 'dotnet restore "ShopApi/ShopApi.csproj"'
+                    sh 'dotnet tool install -g dotnet-ef --version 6.0'
+                    sh 'export PATH=$PATH:/root/.dotnet/tools'
+                    sh 'dotnet-ef database update --startup-project "ShopApi" --project "DAL/DAL.csproj"'
+
+                    // Build and publish the application
+                    sh 'dotnet build "ShopApi/ShopApi.csproj" -c Release -o /app/build'
+                    sh 'dotnet publish "ShopApi/ShopApi.csproj" -c Release -o /app/publish'
+                }
+            }
+        }
+
+        stage('Build Backend Docker Image') {
+            agent any
+            steps {
+                script {
+                    // Build and push backend Docker image
+                    dir('backend') {
+                        sh 'docker build -t ${REPO_NAME}_backend .'
                     }
                 }
             }
         }
 
-        // Backend stages
-        stage('Build Backend Image') {
+        stage('Start Backend Container') {
             steps {
                 script {
-                    def backendImage = "${DOCKER_HUB_REPO}/backend:latest"
-                    docker.build(backendImage, 'path/to/backend')
+                    // Start backend container
+                    sh 'docker run -d --name backend -p 5034:5034 ${REPO_NAME}_backend'
                 }
             }
         }
 
-        stage('Push Backend Image') {
+        stage('Push Backend Docker Image') {
             steps {
                 script {
-                    def backendImage = "${DOCKER_HUB_REPO}/backend:latest"
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
-                        docker.image(backendImage).push()
+                    // Push backend Docker image to Docker Hub
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub_credentials') {
+                        sh 'docker push ${REPO_NAME}_backend'
                     }
                 }
             }
         }
 
-        // Frontend stages
-        stage('Build Frontend Image') {
+        stage('Build Frontend Docker Image') {
+            agent any
             steps {
                 script {
-                    def frontendImage = "${DOCKER_HUB_REPO}/frontend:latest"
-                    docker.build(frontendImage, 'path/to/frontend')
-                }
-            }
-        }
-
-        stage('Push Frontend Image') {
-            steps {
-                script {
-                    def frontendImage = "${DOCKER_HUB_REPO}/frontend:latest"
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
-                        docker.image(frontendImage).push()
+                    // Build and push frontend Docker image
+                    dir('frontend') {
+                        sh 'docker build -t ${REPO_NAME}_frontend .'
                     }
                 }
             }
         }
 
-        // Deployment stages
-        stage('Deploy Database Container') {
+        stage('Start Frontend Container') {
             steps {
                 script {
-                    sh 'docker stop database || true && docker rm database || true'
-                    sh "docker run -d --name database ${DOCKER_HUB_REPO}/database:latest"
+                    // Start frontend container
+                    sh 'docker run -d --name frontend -p 80:80 ${REPO_NAME}_frontend'
                 }
             }
         }
 
-        stage('Deploy Backend Container') {
+        stage('Push Frontend Docker Image') {
             steps {
                 script {
-                    sh 'docker stop backend || true && docker rm backend || true'
-                    sh "docker run -d --name backend --link database:database ${DOCKER_HUB_REPO}/backend:latest"
-                }
-            }
-        }
-
-        stage('Deploy Frontend Container') {
-            steps {
-                script {
-                    sh 'docker stop frontend || true && docker rm frontend || true'
-                    sh "docker run -d --name frontend --link backend:backend ${DOCKER_HUB_REPO}/frontend:latest"
+                    // Push frontend Docker image to Docker Hub
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub_credentials') {
+                        sh 'docker push ${REPO_NAME}_frontend'
+                    }
                 }
             }
         }
@@ -108,14 +103,12 @@ pipeline {
 
     post {
         always {
-            cleanWs()
-        }
-        success {
-            echo 'Build, push, and deploy succeeded!'
-        }
-        failure {
-            echo 'Build, push, or deploy failed!'
+            // Clean up Docker containers and images after the build
+            script {
+                sh 'docker stop frontend backend sql111'
+                sh 'docker rm frontend backend sql111'
+                sh 'docker rmi ${REPO_NAME}_frontend ${REPO_NAME}_backend'
+            }
         }
     }
 }
-
